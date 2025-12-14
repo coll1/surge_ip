@@ -1,0 +1,94 @@
+[General]
+update-interval = 86400
+
+[Panel]
+# IPPure 集成面板，确保标题正确设置
+IPPure IP Check = script-name=ippure-integrated,update-interval=30
+
+[Script]
+# IPPure 面板整合脚本
+ippure-integrated = type=generic,script-content="
+(async () => {
+  // 工具函数：通用 HTTP 请求
+  async function request(method, params) {
+    return new Promise((resolve) => {
+      const httpMethod = $httpClient[method.toLowerCase()];
+      httpMethod(params, (error, response, data) => {
+        resolve({ error, response, data });
+      });
+    });
+  }
+
+  // API 数据请求函数
+  async function fetchData(api, label) {
+    const { error, response, data } = await request('GET', { url: api });
+
+    if (error || !data) {
+      console.log(`${label} API Error:`, error); // Debug
+      return { error: `${label}：网络错误` };
+    }
+
+    try {
+      return { data: JSON.parse(data) };
+    } catch (e) {
+      console.log(`${label} JSON Error:`, e); // Debug
+      return { error: `${label}：数据解析失败` };
+    }
+  }
+
+  // 调用基础 API
+  const baseResult = await fetchData('https://fastly.jsdelivr.net/gh/StashNetworks/misc@main/collapsed-tiles/script/ippure-ip-info.js', '基础信息');
+  if (baseResult.error) {
+    $done({
+      title: 'IPPure 面板',
+      content: baseResult.error,
+      icon: 'network.badge.exclam',
+      'icon-color': '#FF0000',
+    });
+    return;
+  }
+
+  // 调用欺诈评分 API
+  const fraudResult = await fetchData('https://fastly.jsdelivr.net/gh/StashNetworks/misc@main/collapsed-tiles/script/ippure-ip-fraud-score.js', '欺诈评分');
+  if (fraudResult.error) {
+    $done({
+      title: 'IPPure 面板',
+      content: fraudResult.error,
+      icon: 'shield.slash',
+      'icon-color': '#FF0000',
+    });
+    return;
+  }
+
+  // 调用原生 IP 检测 API
+  const nativeResult = await fetchData('https://fastly.jsdelivr.net/gh/StashNetworks/misc@main/collapsed-tiles/script/ippure-ip-native-check.js', '原生检测');
+  if (nativeResult.error) {
+    $done({
+      title: 'IPPure 面板',
+      content: nativeResult.error,
+      icon: 'globe.badge.exclam',
+      'icon-color': '#FF0000',
+    });
+    return;
+  }
+
+  // 解析数据
+  const baseData = baseResult.data || {};
+  const fraudData = fraudResult.data || {};
+  const nativeData = nativeResult.data || {};
+
+  const ip = baseData.ip || '未知 IP';
+  const location = baseData.city || baseData.region || baseData.country || '未知位置';
+  const org = baseData.asOrganization || '未知运营商';
+  const fraudScore = fraudData.score || '未获取评分';
+  const nativeStatus = nativeData.native ? '是' : '否';
+
+  // 输出到面板
+  $done({
+    title: 'IPPure 面板',
+    content: \`IP: \${ip}\\n位置: \${location}\\n运营商: \${org}\\n欺诈评分: \${fraudScore}\\n原生 IP: \${nativeStatus}\`,
+    icon: 'network',
+    'icon-color': '#10B981',
+  });
+})();
+"
